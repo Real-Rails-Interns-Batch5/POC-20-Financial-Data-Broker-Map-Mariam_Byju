@@ -1,0 +1,15 @@
+# Node & Next.js
+node_modules/
+.next/
+
+# Python Virtual Environment
+venv/
+env/
+__pycache__/
+
+# Environment Variables (Security)
+.env
+
+# OS Generated Files
+.DS_Store
+Thumbs.db

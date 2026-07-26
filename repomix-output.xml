@@ -1,0 +1,1538 @@
+This file is a merged representation of the entire codebase, combined into a single document by Repomix.
+
+<file_summary>
+This section contains a summary of this file.
+
+<purpose>
+This file contains a packed representation of the entire repository's contents.
+It is designed to be easily consumable by AI systems for analysis, code review,
+or other automated processes.
+</purpose>
+
+<file_format>
+The content is organized as follows:
+1. This summary section
+2. Repository information
+3. Directory structure
+4. Repository files (if enabled)
+5. Multiple file entries, each consisting of:
+  - File path as an attribute
+  - Full contents of the file
+</file_format>
+
+<usage_guidelines>
+- This file should be treated as read-only. Any changes should be made to the
+  original repository files, not this packed version.
+- When processing this file, use the file path to distinguish
+  between different files in the repository.
+- Be aware that this file may contain sensitive information. Handle it with
+  the same level of security as you would the original repository.
+</usage_guidelines>
+
+<notes>
+- Some files may have been excluded based on .gitignore rules and Repomix's configuration
+- Binary files are not included in this packed representation. Please refer to the Repository Structure section for a complete list of file paths, including binary files
+- Files matching patterns in .gitignore are excluded
+- Files matching default ignore patterns are excluded
+- Files are sorted by Git change count (files with more changes are at the bottom)
+</notes>
+
+</file_summary>
+
+<directory_structure>
+backend/
+  main.py
+  package.json
+  requirements.txt
+frontend/
+  app/
+    favicon.ico
+    globals.css
+    layout.tsx
+    page.tsx
+  components/
+    GraphVisualizer.tsx
+  public/
+    file.svg
+    globe.svg
+    next.svg
+    vercel.svg
+    window.svg
+  .gitignore
+  AGENTS.md
+  CLAUDE.md
+  eslint.config.mjs
+  next.config.ts
+  package.json
+  postcss.config.mjs
+  README.md
+  repomix-output.xml
+  tsconfig.json
+.gitignore
+README.md
+</directory_structure>
+
+<files>
+This section contains the contents of the repository's files.
+
+<file path="backend/main.py">
+from fastapi import FastAPI, Query, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel, Field
+from typing import List, Optional, Dict, Any
+import networkx as nx
+import pandas as pd
+import logging
+
+# Set up logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("data-broker-map")
+
+app = FastAPI(
+    title="POC 20: Financial Data Broker Map API",
+    description="Backend service providing graph lineage, risk intelligence, and permission revocation simulations.",
+    version="1.0.0"
+)
+
+# Enable CORS for frontend integration
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=False,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# -----------------------------------------------------------------------------
+# Data Models (Pydantic Schemas)
+# -----------------------------------------------------------------------------
+
+class GraphNode(BaseModel):
+    id: str
+    label: str
+    type: str  # 'consumer', 'bank', 'aggregator', 'broker', 'app'
+    category: str  # e.g., 'Primary Institution', 'Data Aggregator', 'Credit Bureau', 'Fintech App'
+    risk_level: str  # 'low', 'medium', 'high', 'critical'
+    compliance_score: int = Field(ge=0, le=100)
+    data_types_held: List[str]
+    active_consent: bool = True
+
+class GraphEdge(BaseModel):
+    id: str
+    source: str
+    target: str
+    protocol: str  # e.g., 'OAuth 2.0', 'Screen Scraping', 'Direct API', 'Batch SFTP'
+    scopes: List[str]  # e.g., ['accounts.read', 'transactions.read', 'identity.verify']
+    status: str  # 'active', 'revoked', 'flagged'
+    data_volume_daily_kb: int
+
+class GraphDataPayload(BaseModel):
+    nodes: List[GraphNode]
+    edges: List[GraphEdge]
+
+class RedFlagAlert(BaseModel):
+    id: str
+    node_id: str
+    entity_name: str
+    severity: str  # 'medium', 'high', 'critical'
+    title: str
+    description: str
+    recommendation: str
+
+class RevokeSimulationRequest(BaseModel):
+    target_node_id: Optional[str] = None
+    target_edge_id: Optional[str] = None
+
+class RevokeSimulationResponse(BaseModel):
+    revoked_node_id: Optional[str]
+    revoked_edge_id: Optional[str]
+    disabled_downstream_apps: List[str]
+    affected_nodes_count: int
+    data_types_blocked: List[str]
+    risk_score_reduction: float
+    system_status: str
+
+class NetworkMetrics(BaseModel):
+    total_nodes: int
+    total_edges: int
+    active_brokers: int
+    high_risk_entities: int
+    data_exposure_score: float
+    connected_apps: int
+
+# -----------------------------------------------------------------------------
+# Synthetic Data Engine & Graph Builder
+# -----------------------------------------------------------------------------
+
+def build_mock_graph() -> tuple[List[GraphNode], List[GraphEdge], nx.DiGraph]:
+    nodes = [
+        GraphNode(
+            id="user-001",
+            label="User Vault (Primary)",
+            type="consumer",
+            category="User Profile",
+            risk_level="low",
+            compliance_score=100,
+            data_types_held=["Personal Identifiable Info", "Account Credentials"],
+            active_consent=True
+        ),
+        GraphNode(
+            id="bank-chase",
+            label="Chase Bank",
+            type="bank",
+            category="Financial Institution",
+            risk_level="low",
+            compliance_score=98,
+            data_types_held=["Checking Balance", "Transaction Ledger", "SSN"],
+            active_consent=True
+        ),
+        GraphNode(
+            id="bank-wells",
+            label="Wells Fargo",
+            type="bank",
+            category="Financial Institution",
+            risk_level="low",
+            compliance_score=95,
+            data_types_held=["Mortgage Details", "Savings History"],
+            active_consent=True
+        ),
+        GraphNode(
+            id="agg-plaid",
+            label="Plaid Pipeline",
+            type="aggregator",
+            category="API Aggregator",
+            risk_level="medium",
+            compliance_score=88,
+            data_types_held=["Account Tokens", "Raw Transactions", "Identity Metrics"],
+            active_consent=True
+        ),
+        GraphNode(
+            id="agg-yodlee",
+            label="Envestnet Yodlee",
+            type="aggregator",
+            category="Legacy Aggregator",
+            risk_level="medium",
+            compliance_score=82,
+            data_types_held=["Investments Data", "Bank Feeds"],
+            active_consent=True
+        ),
+        GraphNode(
+            id="broker-experian",
+            label="Experian Data Exchange",
+            type="broker",
+            category="Credit Bureau & Broker",
+            risk_level="high",
+            compliance_score=72,
+            data_types_held=["Credit Scores", "Employment Verification", "Address History"],
+            active_consent=True
+        ),
+        GraphNode(
+            id="broker-yodlee-analytics",
+            label="Yodlee Data Analytics",
+            type="broker",
+            category="Data Broker / Reseller",
+            risk_level="critical",
+            compliance_score=54,
+            data_types_held=["Anonymized Transaction Trends", "Merchant Preferences"],
+            active_consent=True
+        ),
+        GraphNode(
+            id="app-venmo",
+            label="Venmo",
+            type="app",
+            category="Peer-to-Peer Payments",
+            risk_level="low",
+            compliance_score=91,
+            data_types_held=["Bank Account Routing", "Peer Contacts"],
+            active_consent=True
+        ),
+        GraphNode(
+            id="app-mint",
+            label="Credit Karma / Mint",
+            type="app",
+            category="Personal Finance Management",
+            risk_level="medium",
+            compliance_score=85,
+            data_types_held=["Net Worth", "Budget Telemetry"],
+            active_consent=True
+        ),
+        GraphNode(
+            id="app-robinhood",
+            label="Robinhood",
+            type="app",
+            category="Investment & Trading",
+            risk_level="low",
+            compliance_score=90,
+            data_types_held=["Brokerage Transfer Tokens"],
+            active_consent=True
+        )
+    ]
+
+    edges = [
+        GraphEdge(id="e1", source="user-001", target="bank-chase", protocol="Direct Auth", scopes=["auth"], status="active", data_volume_daily_kb=150),
+        GraphEdge(id="e2", source="user-001", target="bank-wells", protocol="Direct Auth", scopes=["auth"], status="active", data_volume_daily_kb=120),
+        GraphEdge(id="e3", source="bank-chase", target="agg-plaid", protocol="OAuth 2.0", scopes=["transactions.read", "accounts.read"], status="active", data_volume_daily_kb=850),
+        GraphEdge(id="e4", source="bank-wells", target="agg-yodlee", protocol="Screen Scraping", scopes=["full_access"], status="flagged", data_volume_daily_kb=620),
+        GraphEdge(id="e5", source="agg-plaid", target="app-venmo", protocol="Direct API", scopes=["balances.read", "transfers.write"], status="active", data_volume_daily_kb=400),
+        GraphEdge(id="e6", source="agg-plaid", target="app-mint", protocol="Direct API", scopes=["transactions.read"], status="active", data_volume_daily_kb=550),
+        GraphEdge(id="e7", source="agg-yodlee", target="broker-yodlee-analytics", protocol="Batch SFTP", scopes=["anonymized.export"], status="flagged", data_volume_daily_kb=1400),
+        GraphEdge(id="e8", source="broker-yodlee-analytics", target="broker-experian", protocol="Data Resale Contract", scopes=["consumer.insights"], status="flagged", data_volume_daily_kb=980),
+        GraphEdge(id="e9", source="agg-plaid", target="app-robinhood", protocol="OAuth 2.0", scopes=["investments.read"], status="active", data_volume_daily_kb=310)
+    ]
+
+    G = nx.DiGraph()
+    for n in nodes:
+        G.add_node(n.id, **n.model_dump())
+    for e in edges:
+        G.add_edge(e.source, e.target, **e.model_dump())
+
+    return nodes, edges, G
+
+# Initialize state
+raw_nodes, raw_edges, network_graph = build_mock_graph()
+
+# -----------------------------------------------------------------------------
+# API Endpoints
+# -----------------------------------------------------------------------------
+
+@app.get("/health")
+def health_check():
+    return {"status": "online", "system": "POC 20 Financial Data Broker Map Engine"}
+
+@app.get("/api/graph", response_model=GraphDataPayload)
+def get_graph_data(
+    node_type: Optional[str] = Query(None, description="Filter by node type (bank, aggregator, broker, app)"),
+    min_risk: Optional[str] = Query(None, description="Filter by minimum risk level")
+):
+    """Returns the node and edge adjacency list for React Flow / Cytoscape rendering."""
+    filtered_nodes = raw_nodes
+    if node_type:
+        filtered_nodes = [n for n in filtered_nodes if n.type == node_type]
+    
+    valid_node_ids = {n.id for n in filtered_nodes}
+    filtered_edges = [e for e in raw_edges if e.source in valid_node_ids and e.target in valid_node_ids]
+    
+    return GraphDataPayload(nodes=filtered_nodes, edges=filtered_edges)
+
+@app.get("/api/metrics", response_model=NetworkMetrics)
+def get_metrics():
+    """Returns top-level data risk and network telemetry."""
+    total_nodes = len(raw_nodes)
+    total_edges = len(raw_edges)
+    active_brokers = len([n for n in raw_nodes if n.type == "broker"])
+    high_risk = len([n for n in raw_nodes if n.risk_level in ["high", "critical"]])
+    connected_apps = len([n for n in raw_nodes if n.type == "app"])
+    
+    # Calculate synthetic exposure score
+    avg_compliance = sum(n.compliance_score for n in raw_nodes) / total_nodes if total_nodes > 0 else 100
+    exposure_score = round(100 - avg_compliance, 1)
+
+    return NetworkMetrics(
+        total_nodes=total_nodes,
+        total_edges=total_edges,
+        active_brokers=active_brokers,
+        high_risk_entities=high_risk,
+        data_exposure_score=exposure_score,
+        connected_apps=connected_apps
+    )
+
+@app.get("/api/red-flags", response_model=List[RedFlagAlert])
+def get_red_flags():
+    """Identifies risky data paths, screen-scraping endpoints, or unconsented resales."""
+    return [
+        RedFlagAlert(
+            id="rf-001",
+            node_id="agg-yodlee",
+            entity_name="Envestnet Yodlee",
+            severity="critical",
+            title="Legacy Screen Scraping Detected",
+            description="Accessing Wells Fargo via legacy screen-scraping rather than encrypted OAuth 2.0 tokenization.",
+            recommendation="Revoke credential delegation and force OAuth 2.0 migration."
+        ),
+        RedFlagAlert(
+            id="rf-002",
+            node_id="broker-yodlee-analytics",
+            entity_name="Yodlee Data Analytics",
+            severity="high",
+            title="Secondary Data Resale Channel",
+            description="Exporting batch transaction trends to secondary credit brokers without explicit consent.",
+            recommendation="Execute data revocation on broker node 'broker-yodlee-analytics'."
+        )
+    ]
+
+@app.post("/api/simulate-revoke", response_model=RevokeSimulationResponse)
+def simulate_revocation(payload: RevokeSimulationRequest):
+    """Calculates downstream app impact when a user revokes access to a broker or aggregator."""
+    if not payload.target_node_id and not payload.target_edge_id:
+        raise HTTPException(status_code=400, detail="Must provide target_node_id or target_edge_id to simulate revocation.")
+
+    target = payload.target_node_id or payload.target_edge_id
+    downstream_apps = []
+    affected_nodes = 0
+    
+    # Analyze downstream cascade using NetworkX
+    if payload.target_node_id and network_graph.has_node(payload.target_node_id):
+        descendants = nx.descendants(network_graph, payload.target_node_id)
+        affected_nodes = len(descendants) + 1
+        for node_id in descendants:
+            node_data = network_graph.nodes[node_id]
+            if node_data.get("type") == "app":
+                downstream_apps.append(node_data.get("label", node_id))
+
+    return RevokeSimulationResponse(
+        revoked_node_id=payload.target_node_id,
+        revoked_edge_id=payload.target_edge_id,
+        disabled_downstream_apps=downstream_apps,
+        affected_nodes_count=affected_nodes,
+        data_types_blocked=["Anonymized Transactions", "Raw Ledger", "Identity Tokens"],
+        risk_score_reduction=28.4,
+        system_status="SIMULATION_COMPLETE"
+    )
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
+</file>
+
+<file path="backend/package.json">
+{
+  "dependencies": {
+    "@xyflow/react": "^12.11.2",
+    "dagre": "^0.8.5"
+  },
+  "devDependencies": {
+    "@types/dagre": "^0.7.54"
+  }
+}
+</file>
+
+<file path="backend/requirements.txt">
+fastapi>=0.110.0
+uvicorn>=0.28.0
+pydantic>=2.6.0
+pandas>=2.2.0
+networkx>=3.2.0
+python-dotenv>=1.0.0
+</file>
+
+<file path="frontend/app/globals.css">
+@import "tailwindcss";
+
+:root {
+  --background: #ffffff;
+  --foreground: #171717;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #0a0a0a;
+    --foreground: #ededed;
+  }
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: Arial, Helvetica, sans-serif;
+}
+</file>
+
+<file path="frontend/app/layout.tsx">
+import type { Metadata } from "next";
+import { Geist, Geist_Mono } from "next/font/google";
+import "./globals.css";
+
+const geistSans = Geist({
+  variable: "--font-geist-sans",
+  subsets: ["latin"],
+});
+
+const geistMono = Geist_Mono({
+  variable: "--font-geist-mono",
+  subsets: ["latin"],
+});
+
+export const metadata: Metadata = {
+  title: "Create Next App",
+  description: "Generated by create next app",
+};
+
+export default function RootLayout({
+  children,
+}: Readonly<{
+  children: React.ReactNode;
+}>) {
+  return (
+    <html
+      lang="en"
+      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
+    >
+      <body className="min-h-full flex flex-col">{children}</body>
+    </html>
+  );
+}
+</file>
+
+<file path="frontend/app/page.tsx">
+"use client";
+
+import { useEffect, useState } from "react";
+import dynamic from "next/dynamic";
+
+// Dynamically import the graph to avoid server-side rendering errors
+const GraphVisualizer = dynamic(() => import("@/components/GraphVisualizer"), {
+  ssr: false,
+  loading: () => (
+    <div className="flex h-full w-full items-center justify-center text-cyan-400 font-mono text-sm tracking-widest">
+      INITIALIZING TRUST RAILS...
+    </div>
+  ),
+});
+
+export default function Home() {
+  const [data, setData] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchIntelligence = async () => {
+      try {
+        // Fetching from the unified FastAPI orchestration endpoint
+        const res = await fetch("http://127.0.0.1:8000/api/v1/intelligence");
+        if (!res.ok) throw new Error("Failed to fetch");
+        const payload = await res.json();
+        setData(payload);
+      } catch (err) {
+        console.error("Failed to fetch intelligence data", err);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchIntelligence();
+  }, []);
+
+  if (loading) {
+    return (
+      <main className="w-screen h-screen bg-[#030712] flex items-center justify-center">
+        <span className="text-cyan-400 font-mono text-sm tracking-widest">CONNECTING TO API...</span>
+      </main>
+    );
+  }
+
+  return (
+    <main className="w-screen h-screen overflow-hidden flex bg-[#030712] text-gray-100">
+      
+      {/* SECTION 1: 70% MAIN STAGE */}
+      <section className="w-[70%] h-full relative border-r border-[#1F2937]">
+        {data?.visualization ? (
+          <GraphVisualizer initialData={data.visualization} />
+        ) : (
+          <div className="flex h-full items-center justify-center text-red-500 font-mono">
+            DATA ORCHESTRATION FAILED
+          </div>
+        )}
+      </section>
+
+      {/* SECTION 2: 30% INTELLIGENCE SIDEBAR */}
+      <section className="w-[30%] h-full bg-[#0B1117] p-6 flex flex-col gap-8 overflow-y-auto">
+        
+        {/* Section A: Title & Metric */}
+        <div className="border-b border-[#1F2937] pb-6">
+          <h1 className="text-2xl font-bold tracking-tight mb-2">
+            {data?.sidebar?.title || "Financial Data Broker Map"}
+          </h1>
+          <div className="text-cyan-400 font-mono text-sm font-semibold tracking-wide">
+            {data?.sidebar?.high_level_metric || "AWAITING METRICS"}
+          </div>
+        </div>
+
+        {/* Section B: Why This Matters */}
+        <div>
+          <h2 className="text-[10px] uppercase tracking-widest text-gray-500 mb-2 font-bold">
+            Why This Matters
+          </h2>
+          <p className="text-sm text-gray-300 leading-relaxed">
+            {data?.sidebar?.insight_a || "No context provided."}
+          </p>
+        </div>
+
+        {/* Section C: Who Controls the Rail */}
+        <div>
+          <h2 className="text-[10px] uppercase tracking-widest text-indigo-400 mb-2 font-bold">
+            Who Controls The Rail
+          </h2>
+          <div className="bg-[#030712] border border-[#1F2937] p-4 rounded-md shadow-inner">
+            <p className="text-sm text-gray-300 leading-relaxed">
+              {data?.sidebar?.insight_b || "No governance data found."}
+            </p>
+          </div>
+        </div>
+
+        {/* Section D & E: Mock UI Elements to satisfy visual protocol */}
+        <div className="mt-auto pt-6 border-t border-[#1F2937]">
+          <button className="w-full py-3 bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-400 border border-cyan-500/50 rounded-md font-mono text-xs transition-colors shadow-[0_0_10px_rgba(56,189,248,0.1)]">
+            DOWNLOAD SAMPLE DATA
+          </button>
+        </div>
+
+      </section>
+    </main>
+  );
+}
+</file>
+
+<file path="frontend/components/GraphVisualizer.tsx">
+"use client";
+
+import { useEffect } from "react";
+import {
+  ReactFlow,
+  Controls,
+  Background,
+  useNodesState,
+  useEdgesState,
+  MarkerType,
+  BackgroundVariant,
+  Handle,
+  Position
+} from "@xyflow/react";
+import "@xyflow/react/dist/style.css";
+import dagre from "dagre";
+
+// 1. Create a Custom Node to put handles on the Left and Right
+const CustomNode = ({ data }: any) => {
+  return (
+    <div 
+      className="rounded-md p-3 w-[260px] relative"
+      style={{
+        background: "#0B1117",
+        border: data.risk_level === "critical" ? "1px solid #ef4444" : "1px solid #1F2937",
+      }}
+    >
+      <Handle type="target" position={Position.Left} className="w-1.5 h-1.5 !bg-gray-500 !border-gray-800" />
+      
+      <div className="flex flex-col text-left">
+        <span className="font-semibold text-sm text-gray-100">{data.label}</span>
+        <span className="text-[10px] text-gray-400 mt-1">{data.category}</span>
+        <span className={`text-[9px] mt-2 tracking-widest uppercase px-2 py-0.5 rounded-sm inline-block w-max ${
+          data.risk_level === "critical" ? "bg-red-500/20 text-red-400 border border-red-500/50" : 
+          data.risk_level === "high" ? "bg-orange-500/20 text-orange-400 border border-orange-500/50" : 
+          "bg-cyan-500/20 text-cyan-400 border border-cyan-500/50"
+        }`}>
+          {data.risk_level} RISK
+        </span>
+      </div>
+
+      <Handle type="source" position={Position.Right} className="w-1.5 h-1.5 !bg-gray-500 !border-gray-800" />
+    </div>
+  );
+};
+
+// Register the custom node type
+const nodeTypes = { custom: CustomNode };
+
+// Initialize the auto-layout engine
+const dagreGraph = new dagre.graphlib.Graph();
+dagreGraph.setDefaultEdgeLabel(() => ({}));
+
+const getLayoutedElements = (nodes: any[], edges: any[], direction = "LR") => {
+  dagreGraph.setGraph({ rankdir: direction });
+
+  nodes.forEach((node) => {
+    dagreGraph.setNode(node.id, { width: 260, height: 80 });
+  });
+
+  edges.forEach((edge) => {
+    dagreGraph.setEdge(edge.source, edge.target);
+  });
+
+  dagre.layout(dagreGraph);
+
+  const layoutedNodes = nodes.map((node) => {
+    const nodeWithPosition = dagreGraph.node(node.id);
+    return {
+      ...node,
+      position: {
+        x: nodeWithPosition.x - 130,
+        y: nodeWithPosition.y - 40,
+      },
+    };
+  });
+
+  return { nodes: layoutedNodes, edges };
+};
+
+// Define the interface for the incoming prop
+interface GraphVisualizerProps {
+  initialData: {
+    nodes: any[];
+    edges: any[];
+  };
+}
+
+export default function GraphVisualizer({ initialData }: GraphVisualizerProps) {
+  const [nodes, setNodes, onNodesChange] = useNodesState([]);
+  const [edges, setEdges, onEdgesChange] = useEdgesState([]);
+
+  useEffect(() => {
+    if (!initialData || !initialData.nodes || !initialData.edges) return;
+
+    try {
+      // Adjusted mapping to gracefully handle both the mock schema and previous schema
+      const formattedNodes = initialData.nodes.map((n: any) => ({
+        id: n.id,
+        type: "custom", 
+        data: {
+          label: n.label,
+          category: n.category || n.type || "Entity", 
+          risk_level: n.risk_level || (n.risk_score > 30 ? "critical" : n.risk_score > 15 ? "high" : "low"),
+        }
+      }));
+
+      const formattedEdges = initialData.edges.map((e: any) => ({
+        id: e.id,
+        source: e.source,
+        target: e.target,
+        label: e.protocol || e.label, 
+        labelStyle: { fill: "#9CA3AF", fontSize: 10, fontWeight: 600 },
+        labelBgStyle: { fill: "#030712" },
+        animated: e.status === "active" || e.contract_type === "Continuous Sync",
+        style: { 
+          stroke: e.status === "flagged" ? "#ef4444" : "#38BDF8",
+          strokeWidth: 2
+        },
+        markerEnd: {
+          type: MarkerType.ArrowClosed,
+          color: e.status === "flagged" ? "#ef4444" : "#38BDF8",
+        },
+      }));
+
+      const { nodes: layoutedNodes, edges: layoutedEdges } = getLayoutedElements(
+        formattedNodes,
+        formattedEdges
+      );
+
+      setNodes(layoutedNodes as any);
+      setEdges(layoutedEdges as any);
+    } catch (err) {
+      console.error("Failed to process graph data", err);
+    }
+  }, [initialData, setNodes, setEdges]); // Dependency array now watches initialData
+
+  return (
+    <div className="w-full h-full bg-[#030712]">
+      <ReactFlow
+        nodes={nodes}
+        edges={edges}
+        nodeTypes={nodeTypes}
+        onNodesChange={onNodesChange}
+        onEdgesChange={onEdgesChange}
+        fitView
+        colorMode="dark"
+        minZoom={0.2}
+      >
+        <Background variant={BackgroundVariant.Dots} gap={16} size={1} color="#1F2937" />
+        <Controls className="bg-gray-900 border-gray-800 fill-gray-300" />
+      </ReactFlow>
+    </div>
+  );
+}
+</file>
+
+<file path="frontend/public/file.svg">
+<svg fill="none" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg"><path d="M14.5 13.5V5.41a1 1 0 0 0-.3-.7L9.8.29A1 1 0 0 0 9.08 0H1.5v13.5A2.5 2.5 0 0 0 4 16h8a2.5 2.5 0 0 0 2.5-2.5m-1.5 0v-7H8v-5H3v12a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1M9.5 5V2.12L12.38 5zM5.13 5h-.62v1.25h2.12V5zm-.62 3h7.12v1.25H4.5zm.62 3h-.62v1.25h7.12V11z" clip-rule="evenodd" fill="#666" fill-rule="evenodd"/></svg>
+</file>
+
+<file path="frontend/public/globe.svg">
+<svg fill="none" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><g clip-path="url(#a)"><path fill-rule="evenodd" clip-rule="evenodd" d="M10.27 14.1a6.5 6.5 0 0 0 3.67-3.45q-1.24.21-2.7.34-.31 1.83-.97 3.1M8 16A8 8 0 1 0 8 0a8 8 0 0 0 0 16m.48-1.52a7 7 0 0 1-.96 0H7.5a4 4 0 0 1-.84-1.32q-.38-.89-.63-2.08a40 40 0 0 0 3.92 0q-.25 1.2-.63 2.08a4 4 0 0 1-.84 1.31zm2.94-4.76q1.66-.15 2.95-.43a7 7 0 0 0 0-2.58q-1.3-.27-2.95-.43a18 18 0 0 1 0 3.44m-1.27-3.54a17 17 0 0 1 0 3.64 39 39 0 0 1-4.3 0 17 17 0 0 1 0-3.64 39 39 0 0 1 4.3 0m1.1-1.17q1.45.13 2.69.34a6.5 6.5 0 0 0-3.67-3.44q.65 1.26.98 3.1M8.48 1.5l.01.02q.41.37.84 1.31.38.89.63 2.08a40 40 0 0 0-3.92 0q.25-1.2.63-2.08a4 4 0 0 1 .85-1.32 7 7 0 0 1 .96 0m-2.75.4a6.5 6.5 0 0 0-3.67 3.44 29 29 0 0 1 2.7-.34q.31-1.83.97-3.1M4.58 6.28q-1.66.16-2.95.43a7 7 0 0 0 0 2.58q1.3.27 2.95.43a18 18 0 0 1 0-3.44m.17 4.71q-1.45-.12-2.69-.34a6.5 6.5 0 0 0 3.67 3.44q-.65-1.27-.98-3.1" fill="#666"/></g><defs><clipPath id="a"><path fill="#fff" d="M0 0h16v16H0z"/></clipPath></defs></svg>
+</file>
+
+<file path="frontend/public/next.svg">
+<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 394 80"><path fill="#000" d="M262 0h68.5v12.7h-27.2v66.6h-13.6V12.7H262V0ZM149 0v12.7H94v20.4h44.3v12.6H94v21h55v12.6H80.5V0h68.7zm34.3 0h-17.8l63.8 79.4h17.9l-32-39.7 32-39.6h-17.9l-23 28.6-23-28.6zm18.3 56.7-9-11-27.1 33.7h17.8l18.3-22.7z"/><path fill="#000" d="M81 79.3 17 0H0v79.3h13.6V17l50.2 62.3H81Zm252.6-.4c-1 0-1.8-.4-2.5-1s-1.1-1.6-1.1-2.6.3-1.8 1-2.5 1.6-1 2.6-1 1.8.3 2.5 1a3.4 3.4 0 0 1 .6 4.3 3.7 3.7 0 0 1-3 1.8zm23.2-33.5h6v23.3c0 2.1-.4 4-1.3 5.5a9.1 9.1 0 0 1-3.8 3.5c-1.6.8-3.5 1.3-5.7 1.3-2 0-3.7-.4-5.3-1s-2.8-1.8-3.7-3.2c-.9-1.3-1.4-3-1.4-5h6c.1.8.3 1.6.7 2.2s1 1.2 1.6 1.5c.7.4 1.5.5 2.4.5 1 0 1.8-.2 2.4-.6a4 4 0 0 0 1.6-1.8c.3-.8.5-1.8.5-3V45.5zm30.9 9.1a4.4 4.4 0 0 0-2-3.3 7.5 7.5 0 0 0-4.3-1.1c-1.3 0-2.4.2-3.3.5-.9.4-1.6 1-2 1.6a3.5 3.5 0 0 0-.3 4c.3.5.7.9 1.3 1.2l1.8 1 2 .5 3.2.8c1.3.3 2.5.7 3.7 1.2a13 13 0 0 1 3.2 1.8 8.1 8.1 0 0 1 3 6.5c0 2-.5 3.7-1.5 5.1a10 10 0 0 1-4.4 3.5c-1.8.8-4.1 1.2-6.8 1.2-2.6 0-4.9-.4-6.8-1.2-2-.8-3.4-2-4.5-3.5a10 10 0 0 1-1.7-5.6h6a5 5 0 0 0 3.5 4.6c1 .4 2.2.6 3.4.6 1.3 0 2.5-.2 3.5-.6 1-.4 1.8-1 2.4-1.7a4 4 0 0 0 .8-2.4c0-.9-.2-1.6-.7-2.2a11 11 0 0 0-2.1-1.4l-3.2-1-3.8-1c-2.8-.7-5-1.7-6.6-3.2a7.2 7.2 0 0 1-2.4-5.7 8 8 0 0 1 1.7-5 10 10 0 0 1 4.3-3.5c2-.8 4-1.2 6.4-1.2 2.3 0 4.4.4 6.2 1.2 1.8.8 3.2 2 4.3 3.4 1 1.4 1.5 3 1.5 5h-5.8z"/></svg>
+</file>
+
+<file path="frontend/public/vercel.svg">
+<svg fill="none" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1155 1000"><path d="m577.3 0 577.4 1000H0z" fill="#fff"/></svg>
+</file>
+
+<file path="frontend/public/window.svg">
+<svg fill="none" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><path fill-rule="evenodd" clip-rule="evenodd" d="M1.5 2.5h13v10a1 1 0 0 1-1 1h-11a1 1 0 0 1-1-1zM0 1h16v11.5a2.5 2.5 0 0 1-2.5 2.5h-11A2.5 2.5 0 0 1 0 12.5zm3.75 4.5a.75.75 0 1 0 0-1.5.75.75 0 0 0 0 1.5M7 4.75a.75.75 0 1 1-1.5 0 .75.75 0 0 1 1.5 0m1.75.75a.75.75 0 1 0 0-1.5.75.75 0 0 0 0 1.5" fill="#666"/></svg>
+</file>
+
+<file path="frontend/.gitignore">
+# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
+
+# dependencies
+/node_modules
+/.pnp
+.pnp.*
+.yarn/*
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/versions
+
+# testing
+/coverage
+
+# next.js
+/.next/
+/out/
+
+# production
+/build
+
+# misc
+.DS_Store
+*.pem
+
+# debug
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# env files (can opt-in for committing if needed)
+.env*
+
+# vercel
+.vercel
+
+# typescript
+*.tsbuildinfo
+next-env.d.ts
+</file>
+
+<file path="frontend/AGENTS.md">
+<!-- BEGIN:nextjs-agent-rules -->
+# This is NOT the Next.js you know
+
+This version has breaking changes — APIs, conventions, and file structure may all differ from your training data. Read the relevant guide in `node_modules/next/dist/docs/` before writing any code. Heed deprecation notices.
+<!-- END:nextjs-agent-rules -->
+</file>
+
+<file path="frontend/CLAUDE.md">
+@AGENTS.md
+</file>
+
+<file path="frontend/eslint.config.mjs">
+import { defineConfig, globalIgnores } from "eslint/config";
+import nextVitals from "eslint-config-next/core-web-vitals";
+import nextTs from "eslint-config-next/typescript";
+
+const eslintConfig = defineConfig([
+  ...nextVitals,
+  ...nextTs,
+  // Override default ignores of eslint-config-next.
+  globalIgnores([
+    // Default ignores of eslint-config-next:
+    ".next/**",
+    "out/**",
+    "build/**",
+    "next-env.d.ts",
+  ]),
+]);
+
+export default eslintConfig;
+</file>
+
+<file path="frontend/next.config.ts">
+import type { NextConfig } from "next";
+
+const nextConfig: NextConfig = {
+  /* config options here */
+};
+
+export default nextConfig;
+</file>
+
+<file path="frontend/package.json">
+{
+  "name": "frontend",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint"
+  },
+  "dependencies": {
+    "@xyflow/react": "^12.11.2",
+    "dagre": "^0.8.5",
+    "next": "16.2.9",
+    "react": "19.2.4",
+    "react-dom": "19.2.4"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4",
+    "@types/dagre": "^0.7.54",
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "eslint": "^9",
+    "eslint-config-next": "16.2.9",
+    "tailwindcss": "^4",
+    "typescript": "^5"
+  }
+}
+</file>
+
+<file path="frontend/postcss.config.mjs">
+const config = {
+  plugins: {
+    "@tailwindcss/postcss": {},
+  },
+};
+
+export default config;
+</file>
+
+<file path="frontend/README.md">
+This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+
+## Getting Started
+
+First, run the development server:
+
+```bash
+npm run dev
+# or
+yarn dev
+# or
+pnpm dev
+# or
+bun dev
+```
+
+Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+
+You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+
+This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+
+## Learn More
+
+To learn more about Next.js, take a look at the following resources:
+
+- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
+- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+
+You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+
+## Deploy on Vercel
+
+The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+
+Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+</file>
+
+<file path="frontend/repomix-output.xml">
+This file is a merged representation of the entire codebase, combined into a single document by Repomix.
+
+<file_summary>
+This section contains a summary of this file.
+
+<purpose>
+This file contains a packed representation of the entire repository's contents.
+It is designed to be easily consumable by AI systems for analysis, code review,
+or other automated processes.
+</purpose>
+
+<file_format>
+The content is organized as follows:
+1. This summary section
+2. Repository information
+3. Directory structure
+4. Repository files (if enabled)
+5. Multiple file entries, each consisting of:
+  - File path as an attribute
+  - Full contents of the file
+</file_format>
+
+<usage_guidelines>
+- This file should be treated as read-only. Any changes should be made to the
+  original repository files, not this packed version.
+- When processing this file, use the file path to distinguish
+  between different files in the repository.
+- Be aware that this file may contain sensitive information. Handle it with
+  the same level of security as you would the original repository.
+</usage_guidelines>
+
+<notes>
+- Some files may have been excluded based on .gitignore rules and Repomix's configuration
+- Binary files are not included in this packed representation. Please refer to the Repository Structure section for a complete list of file paths, including binary files
+- Files matching patterns in .gitignore are excluded
+- Files matching default ignore patterns are excluded
+- Files are sorted by Git change count (files with more changes are at the bottom)
+</notes>
+
+</file_summary>
+
+<directory_structure>
+app/
+  favicon.ico
+  globals.css
+  layout.tsx
+  page.tsx
+components/
+  GraphVisualizer.tsx
+public/
+  file.svg
+  globe.svg
+  next.svg
+  vercel.svg
+  window.svg
+.gitignore
+AGENTS.md
+CLAUDE.md
+eslint.config.mjs
+next.config.ts
+package.json
+postcss.config.mjs
+README.md
+tsconfig.json
+</directory_structure>
+
+<files>
+This section contains the contents of the repository's files.
+
+<file path="app/globals.css">
+@import "tailwindcss";
+
+:root {
+  --background: #ffffff;
+  --foreground: #171717;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #0a0a0a;
+    --foreground: #ededed;
+  }
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: Arial, Helvetica, sans-serif;
+}
+</file>
+
+<file path="app/layout.tsx">
+import type { Metadata } from "next";
+import { Geist, Geist_Mono } from "next/font/google";
+import "./globals.css";
+
+const geistSans = Geist({
+  variable: "--font-geist-sans",
+  subsets: ["latin"],
+});
+
+const geistMono = Geist_Mono({
+  variable: "--font-geist-mono",
+  subsets: ["latin"],
+});
+
+export const metadata: Metadata = {
+  title: "Create Next App",
+  description: "Generated by create next app",
+};
+
+export default function RootLayout({
+  children,
+}: Readonly<{
+  children: React.ReactNode;
+}>) {
+  return (
+    <html
+      lang="en"
+      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
+    >
+      <body className="min-h-full flex flex-col">{children}</body>
+    </html>
+  );
+}
+</file>
+
+<file path="app/page.tsx">
+"use client";
+
+import dynamic from "next/dynamic";
+
+// Dynamically import the graph to avoid server-side rendering errors with map/flow libraries
+const GraphVisualizer = dynamic(() => import("@/components/GraphVisualizer"), {
+  ssr: false,
+  loading: () => (
+    <div className="flex h-screen w-full items-center justify-center bg-[#030712] text-cyan-400 font-mono text-sm tracking-widest">
+      INITIALIZING TRUST RAILS...
+    </div>
+  ),
+});
+
+export default function Home() {
+  return (
+    <main className="w-screen h-screen overflow-hidden">
+      <GraphVisualizer />
+    </main>
+  );
+}
+</file>
+
+<file path="components/GraphVisualizer.tsx">
+"use client";
+
+import { useEffect } from "react";
+import {
+  ReactFlow,
+  Controls,
+  Background,
+  useNodesState,
+  useEdgesState,
+  MarkerType,
+  BackgroundVariant,
+  Handle,
+  Position
+} from "@xyflow/react";
+import "@xyflow/react/dist/style.css";
+import dagre from "dagre";
+
+// 1. Create a Custom Node to put handles on the Left and Right
+const CustomNode = ({ data }: any) => {
+  return (
+    <div 
+      className="rounded-md p-3 w-[260px] relative"
+      style={{
+        background: "#0B1117",
+        border: data.risk_level === "critical" ? "1px solid #ef4444" : "1px solid #1F2937",
+      }}
+    >
+      <Handle type="target" position={Position.Left} className="w-1.5 h-1.5 !bg-gray-500 !border-gray-800" />
+      
+      <div className="flex flex-col text-left">
+        <span className="font-semibold text-sm text-gray-100">{data.label}</span>
+        <span className="text-[10px] text-gray-400 mt-1">{data.category}</span>
+        <span className={`text-[9px] mt-2 tracking-widest uppercase px-2 py-0.5 rounded-sm inline-block w-max ${
+          data.risk_level === "critical" ? "bg-red-500/20 text-red-400 border border-red-500/50" : 
+          data.risk_level === "high" ? "bg-orange-500/20 text-orange-400 border border-orange-500/50" : 
+          "bg-cyan-500/20 text-cyan-400 border border-cyan-500/50"
+        }`}>
+          {data.risk_level} RISK
+        </span>
+      </div>
+
+      <Handle type="source" position={Position.Right} className="w-1.5 h-1.5 !bg-gray-500 !border-gray-800" />
+    </div>
+  );
+};
+
+// Register the custom node type
+const nodeTypes = { custom: CustomNode };
+
+// Initialize the auto-layout engine
+const dagreGraph = new dagre.graphlib.Graph();
+dagreGraph.setDefaultEdgeLabel(() => ({}));
+
+const getLayoutedElements = (nodes: any[], edges: any[], direction = "LR") => {
+  dagreGraph.setGraph({ rankdir: direction });
+
+  nodes.forEach((node) => {
+    dagreGraph.setNode(node.id, { width: 260, height: 80 });
+  });
+
+  edges.forEach((edge) => {
+    dagreGraph.setEdge(edge.source, edge.target);
+  });
+
+  dagre.layout(dagreGraph);
+
+  const layoutedNodes = nodes.map((node) => {
+    const nodeWithPosition = dagreGraph.node(node.id);
+    return {
+      ...node,
+      position: {
+        x: nodeWithPosition.x - 130,
+        y: nodeWithPosition.y - 40,
+      },
+    };
+  });
+
+  return { nodes: layoutedNodes, edges };
+};
+
+export default function GraphVisualizer() {
+  const [nodes, setNodes, onNodesChange] = useNodesState([]);
+  const [edges, setEdges, onEdgesChange] = useEdgesState([]);
+
+  useEffect(() => {
+    const fetchGraph = async () => {
+      try {
+        const res = await fetch("http://127.0.0.1:8000/api/graph");
+        if (!res.ok) throw new Error("Failed to fetch");
+        const data = await res.json();
+
+        const formattedNodes = data.nodes.map((n: any) => ({
+          id: n.id,
+          type: "custom", // Use our new custom node
+          data: {
+            label: n.label,
+            category: n.category,
+            risk_level: n.risk_level,
+          }
+        }));
+
+        const formattedEdges = data.edges.map((e: any) => ({
+          id: e.id,
+          source: e.source,
+          target: e.target,
+          label: e.protocol,
+          labelStyle: { fill: "#9CA3AF", fontSize: 10, fontWeight: 600 },
+          labelBgStyle: { fill: "#030712" },
+          animated: e.status === "active",
+          style: { 
+            stroke: e.status === "flagged" ? "#ef4444" : "#38BDF8",
+            strokeWidth: 2
+          },
+          markerEnd: {
+            type: MarkerType.ArrowClosed,
+            color: e.status === "flagged" ? "#ef4444" : "#38BDF8",
+          },
+        }));
+
+        const { nodes: layoutedNodes, edges: layoutedEdges } = getLayoutedElements(
+          formattedNodes,
+          formattedEdges
+        );
+
+        setNodes(layoutedNodes as any);
+        setEdges(layoutedEdges as any);
+      } catch (err) {
+        console.error("Failed to fetch graph data", err);
+      }
+    };
+
+    fetchGraph();
+  }, [setNodes, setEdges]);
+
+  return (
+    <div className="w-full h-full bg-[#030712]">
+      <ReactFlow
+        nodes={nodes}
+        edges={edges}
+        nodeTypes={nodeTypes}
+        onNodesChange={onNodesChange}
+        onEdgesChange={onEdgesChange}
+        fitView
+        colorMode="dark"
+        minZoom={0.2}
+      >
+        <Background variant={BackgroundVariant.Dots} gap={16} size={1} color="#1F2937" />
+        <Controls className="bg-gray-900 border-gray-800 fill-gray-300" />
+      </ReactFlow>
+    </div>
+  );
+}
+</file>
+
+<file path="public/file.svg">
+<svg fill="none" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg"><path d="M14.5 13.5V5.41a1 1 0 0 0-.3-.7L9.8.29A1 1 0 0 0 9.08 0H1.5v13.5A2.5 2.5 0 0 0 4 16h8a2.5 2.5 0 0 0 2.5-2.5m-1.5 0v-7H8v-5H3v12a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1M9.5 5V2.12L12.38 5zM5.13 5h-.62v1.25h2.12V5zm-.62 3h7.12v1.25H4.5zm.62 3h-.62v1.25h7.12V11z" clip-rule="evenodd" fill="#666" fill-rule="evenodd"/></svg>
+</file>
+
+<file path="public/globe.svg">
+<svg fill="none" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><g clip-path="url(#a)"><path fill-rule="evenodd" clip-rule="evenodd" d="M10.27 14.1a6.5 6.5 0 0 0 3.67-3.45q-1.24.21-2.7.34-.31 1.83-.97 3.1M8 16A8 8 0 1 0 8 0a8 8 0 0 0 0 16m.48-1.52a7 7 0 0 1-.96 0H7.5a4 4 0 0 1-.84-1.32q-.38-.89-.63-2.08a40 40 0 0 0 3.92 0q-.25 1.2-.63 2.08a4 4 0 0 1-.84 1.31zm2.94-4.76q1.66-.15 2.95-.43a7 7 0 0 0 0-2.58q-1.3-.27-2.95-.43a18 18 0 0 1 0 3.44m-1.27-3.54a17 17 0 0 1 0 3.64 39 39 0 0 1-4.3 0 17 17 0 0 1 0-3.64 39 39 0 0 1 4.3 0m1.1-1.17q1.45.13 2.69.34a6.5 6.5 0 0 0-3.67-3.44q.65 1.26.98 3.1M8.48 1.5l.01.02q.41.37.84 1.31.38.89.63 2.08a40 40 0 0 0-3.92 0q.25-1.2.63-2.08a4 4 0 0 1 .85-1.32 7 7 0 0 1 .96 0m-2.75.4a6.5 6.5 0 0 0-3.67 3.44 29 29 0 0 1 2.7-.34q.31-1.83.97-3.1M4.58 6.28q-1.66.16-2.95.43a7 7 0 0 0 0 2.58q1.3.27 2.95.43a18 18 0 0 1 0-3.44m.17 4.71q-1.45-.12-2.69-.34a6.5 6.5 0 0 0 3.67 3.44q-.65-1.27-.98-3.1" fill="#666"/></g><defs><clipPath id="a"><path fill="#fff" d="M0 0h16v16H0z"/></clipPath></defs></svg>
+</file>
+
+<file path="public/next.svg">
+<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 394 80"><path fill="#000" d="M262 0h68.5v12.7h-27.2v66.6h-13.6V12.7H262V0ZM149 0v12.7H94v20.4h44.3v12.6H94v21h55v12.6H80.5V0h68.7zm34.3 0h-17.8l63.8 79.4h17.9l-32-39.7 32-39.6h-17.9l-23 28.6-23-28.6zm18.3 56.7-9-11-27.1 33.7h17.8l18.3-22.7z"/><path fill="#000" d="M81 79.3 17 0H0v79.3h13.6V17l50.2 62.3H81Zm252.6-.4c-1 0-1.8-.4-2.5-1s-1.1-1.6-1.1-2.6.3-1.8 1-2.5 1.6-1 2.6-1 1.8.3 2.5 1a3.4 3.4 0 0 1 .6 4.3 3.7 3.7 0 0 1-3 1.8zm23.2-33.5h6v23.3c0 2.1-.4 4-1.3 5.5a9.1 9.1 0 0 1-3.8 3.5c-1.6.8-3.5 1.3-5.7 1.3-2 0-3.7-.4-5.3-1s-2.8-1.8-3.7-3.2c-.9-1.3-1.4-3-1.4-5h6c.1.8.3 1.6.7 2.2s1 1.2 1.6 1.5c.7.4 1.5.5 2.4.5 1 0 1.8-.2 2.4-.6a4 4 0 0 0 1.6-1.8c.3-.8.5-1.8.5-3V45.5zm30.9 9.1a4.4 4.4 0 0 0-2-3.3 7.5 7.5 0 0 0-4.3-1.1c-1.3 0-2.4.2-3.3.5-.9.4-1.6 1-2 1.6a3.5 3.5 0 0 0-.3 4c.3.5.7.9 1.3 1.2l1.8 1 2 .5 3.2.8c1.3.3 2.5.7 3.7 1.2a13 13 0 0 1 3.2 1.8 8.1 8.1 0 0 1 3 6.5c0 2-.5 3.7-1.5 5.1a10 10 0 0 1-4.4 3.5c-1.8.8-4.1 1.2-6.8 1.2-2.6 0-4.9-.4-6.8-1.2-2-.8-3.4-2-4.5-3.5a10 10 0 0 1-1.7-5.6h6a5 5 0 0 0 3.5 4.6c1 .4 2.2.6 3.4.6 1.3 0 2.5-.2 3.5-.6 1-.4 1.8-1 2.4-1.7a4 4 0 0 0 .8-2.4c0-.9-.2-1.6-.7-2.2a11 11 0 0 0-2.1-1.4l-3.2-1-3.8-1c-2.8-.7-5-1.7-6.6-3.2a7.2 7.2 0 0 1-2.4-5.7 8 8 0 0 1 1.7-5 10 10 0 0 1 4.3-3.5c2-.8 4-1.2 6.4-1.2 2.3 0 4.4.4 6.2 1.2 1.8.8 3.2 2 4.3 3.4 1 1.4 1.5 3 1.5 5h-5.8z"/></svg>
+</file>
+
+<file path="public/vercel.svg">
+<svg fill="none" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1155 1000"><path d="m577.3 0 577.4 1000H0z" fill="#fff"/></svg>
+</file>
+
+<file path="public/window.svg">
+<svg fill="none" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><path fill-rule="evenodd" clip-rule="evenodd" d="M1.5 2.5h13v10a1 1 0 0 1-1 1h-11a1 1 0 0 1-1-1zM0 1h16v11.5a2.5 2.5 0 0 1-2.5 2.5h-11A2.5 2.5 0 0 1 0 12.5zm3.75 4.5a.75.75 0 1 0 0-1.5.75.75 0 0 0 0 1.5M7 4.75a.75.75 0 1 1-1.5 0 .75.75 0 0 1 1.5 0m1.75.75a.75.75 0 1 0 0-1.5.75.75 0 0 0 0 1.5" fill="#666"/></svg>
+</file>
+
+<file path=".gitignore">
+# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
+
+# dependencies
+/node_modules
+/.pnp
+.pnp.*
+.yarn/*
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/versions
+
+# testing
+/coverage
+
+# next.js
+/.next/
+/out/
+
+# production
+/build
+
+# misc
+.DS_Store
+*.pem
+
+# debug
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# env files (can opt-in for committing if needed)
+.env*
+
+# vercel
+.vercel
+
+# typescript
+*.tsbuildinfo
+next-env.d.ts
+</file>
+
+<file path="AGENTS.md">
+<!-- BEGIN:nextjs-agent-rules -->
+# This is NOT the Next.js you know
+
+This version has breaking changes — APIs, conventions, and file structure may all differ from your training data. Read the relevant guide in `node_modules/next/dist/docs/` before writing any code. Heed deprecation notices.
+<!-- END:nextjs-agent-rules -->
+</file>
+
+<file path="CLAUDE.md">
+@AGENTS.md
+</file>
+
+<file path="eslint.config.mjs">
+import { defineConfig, globalIgnores } from "eslint/config";
+import nextVitals from "eslint-config-next/core-web-vitals";
+import nextTs from "eslint-config-next/typescript";
+
+const eslintConfig = defineConfig([
+  ...nextVitals,
+  ...nextTs,
+  // Override default ignores of eslint-config-next.
+  globalIgnores([
+    // Default ignores of eslint-config-next:
+    ".next/**",
+    "out/**",
+    "build/**",
+    "next-env.d.ts",
+  ]),
+]);
+
+export default eslintConfig;
+</file>
+
+<file path="next.config.ts">
+import type { NextConfig } from "next";
+
+const nextConfig: NextConfig = {
+  /* config options here */
+};
+
+export default nextConfig;
+</file>
+
+<file path="package.json">
+{
+  "name": "frontend",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint"
+  },
+  "dependencies": {
+    "@xyflow/react": "^12.11.2",
+    "dagre": "^0.8.5",
+    "next": "16.2.9",
+    "react": "19.2.4",
+    "react-dom": "19.2.4"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4",
+    "@types/dagre": "^0.7.54",
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "eslint": "^9",
+    "eslint-config-next": "16.2.9",
+    "tailwindcss": "^4",
+    "typescript": "^5"
+  }
+}
+</file>
+
+<file path="postcss.config.mjs">
+const config = {
+  plugins: {
+    "@tailwindcss/postcss": {},
+  },
+};
+
+export default config;
+</file>
+
+<file path="README.md">
+This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+
+## Getting Started
+
+First, run the development server:
+
+```bash
+npm run dev
+# or
+yarn dev
+# or
+pnpm dev
+# or
+bun dev
+```
+
+Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+
+You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+
+This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+
+## Learn More
+
+To learn more about Next.js, take a look at the following resources:
+
+- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
+- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+
+You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+
+## Deploy on Vercel
+
+The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+
+Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+</file>
+
+<file path="tsconfig.json">
+{
+  "compilerOptions": {
+    "target": "ES2017",
+    "lib": ["dom", "dom.iterable", "esnext"],
+    "allowJs": true,
+    "skipLibCheck": true,
+    "strict": true,
+    "noEmit": true,
+    "esModuleInterop": true,
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "jsx": "react-jsx",
+    "incremental": true,
+    "plugins": [
+      {
+        "name": "next"
+      }
+    ],
+    "paths": {
+      "@/*": ["./*"]
+    }
+  },
+  "include": [
+    "next-env.d.ts",
+    "**/*.ts",
+    "**/*.tsx",
+    ".next/types/**/*.ts",
+    ".next/dev/types/**/*.ts",
+    "**/*.mts"
+  ],
+  "exclude": ["node_modules"]
+}
+</file>
+
+</files>
+</file>
+
+<file path="frontend/tsconfig.json">
+{
+  "compilerOptions": {
+    "target": "ES2017",
+    "lib": ["dom", "dom.iterable", "esnext"],
+    "allowJs": true,
+    "skipLibCheck": true,
+    "strict": true,
+    "noEmit": true,
+    "esModuleInterop": true,
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "jsx": "react-jsx",
+    "incremental": true,
+    "plugins": [
+      {
+        "name": "next"
+      }
+    ],
+    "paths": {
+      "@/*": ["./*"]
+    }
+  },
+  "include": [
+    "next-env.d.ts",
+    "**/*.ts",
+    "**/*.tsx",
+    ".next/types/**/*.ts",
+    ".next/dev/types/**/*.ts",
+    "**/*.mts"
+  ],
+  "exclude": ["node_modules"]
+}
+</file>
+
+<file path=".gitignore">
+# Node & Next.js
+node_modules/
+.next/
+
+# Python Virtual Environment
+venv/
+env/
+__pycache__/
+
+# Environment Variables (Security)
+.env
+
+# OS Generated Files
+.DS_Store
+Thumbs.db
+</file>
+
+<file path="README.md">
+# POC-20-Financial-Data-Broker-Map-Mariam_Byju
+</file>
+
+</files>
