@@ -11,9 +11,7 @@ import {
   BackgroundVariant,
   Handle,
   Position
-} 
-
-from "@xyflow/react";
+} from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import dagre from "dagre";
 
@@ -63,7 +61,6 @@ const getLayoutedElements = (nodes: any[], edges: any[], direction = "LR") => {
   };
 };
 
-// ADDED: onNodeSelect prop for the Data Handshake
 interface GraphVisualizerProps {
   initialData: {
     nodes: any[];
@@ -84,10 +81,11 @@ export default function GraphVisualizer({ initialData, onNodeSelect }: GraphVisu
         id: n.id,
         type: "custom",
         data: {
+          id: n.id, // FIXED: The ID is now passed so page.tsx can read activeNode.id
           label: n.label,
           category: n.category || n.type || "Entity",
           risk_level: n.risk_level,
-          compliance_score: n.compliance_score, // Passing full metadata for sidebar
+          compliance_score: n.compliance_score, 
           data_types_held: n.data_types_held
         }
       }));
@@ -120,7 +118,6 @@ export default function GraphVisualizer({ initialData, onNodeSelect }: GraphVisu
         nodeTypes={nodeTypes}
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
-        // Explicitly typed 'node: any' to resolve TypeScript error on node.data
         onNodeClick={(_, node: any) => {
           if (onNodeSelect) onNodeSelect(node.data);
         }}
